@@ -65,25 +65,9 @@ class GameScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.grid_4x4_rounded,
-                        size: 80,
-                        color: Color(0xFF7B2D26),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Game board coming next',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Color(0xFF4A2C23),
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+                  child: const ClipRRect(
+                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                    child: CheckersBoard(),
                   ),
                 ),
               ),
@@ -95,3 +79,32 @@ class GameScreen extends StatelessWidget {
   }
 }
 
+class CheckersBoard extends StatelessWidget {
+  const CheckersBoard({super.key});
+
+  static const _lightSquareColor = Color(0xFFE8D7B7);
+  static const _darkSquareColor = Color(0xFF7B2D26);
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      key: const Key('checkers-board'),
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 8,
+      ),
+      itemCount: 64,
+      itemBuilder: (context, index) {
+        final row = index ~/ 8;
+        final column = index % 8;
+        final isDarkSquare = (row + column).isOdd;
+
+        return ColoredBox(
+          key: Key('board-square-$index'),
+          color: isDarkSquare ? _darkSquareColor : _lightSquareColor,
+        );
+      },
+    );
+  }
+}
