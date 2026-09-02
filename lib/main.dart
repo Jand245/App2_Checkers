@@ -79,14 +79,31 @@ class GameScreen extends StatelessWidget {
   }
 }
 
-class CheckersBoard extends StatelessWidget {
+class CheckersBoard extends StatefulWidget {
   const CheckersBoard({super.key});
 
+  @override
+  State<CheckersBoard> createState() => _CheckersBoardState();
+}
+
+class _CheckersBoardState extends State<CheckersBoard> {
   static const _lightSquareColor = Color(0xFFE8D7B7);
   static const _darkSquareColor = Color(0xFF7B2D26);
 
+  late final List<CheckersPieceColor?> _squares;
+  CheckersPieceColor _currentPlayer = CheckersPieceColor.dark;
+  int? _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _squares = List.generate(64, _startingPieceAt);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final legalMoves = _legalMovesFrom(_selectedIndex);
+
     return GridView.builder(
       key: const Key('checkers-board'),
       physics: const NeverScrollableScrollPhysics(),
@@ -99,20 +116,56 @@ class CheckersBoard extends StatelessWidget {
         final row = index ~/ 8;
         final column = index % 8;
         final isDarkSquare = (row + column).isOdd;
-        final pieceColor = _pieceColorAt(row, column);
+        final pieceColor = _squares[index];
 
-        return ColoredBox(
+        return GestureDetector(
           key: Key('board-square-$index'),
-          color: isDarkSquare ? _darkSquareColor : _lightSquareColor,
-          child: pieceColor == null
-              ? null
-              : Center(child: CheckersPiece(color: pieceColor)),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _handleSquareTap(index, legalMoves),
+          child: ColoredBox(
+            color: isDarkSquare ? _darkSquareColor : _lightSquareColor,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (pieceColor != null)
+                  Center(
+                    child: CheckersPiece(
+                      key: Key('piece-$index'),
+                      color: pieceColor,
+                    ),
+                  ),
+                if (legalMoves.contains(index))
+                  Center(
+                    child: FractionallySizedBox(
+                      widthFactor: 0.28,
+                      heightFactor: 0.28,
+                      child: DecoratedBox(
+                        key: Key('move-target-$index'),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFFD166),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x66000000),
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 
-  CheckersPieceColor? _pieceColorAt(int row, int column) {
+  CheckersPieceColor? _startingPieceAt(int index) {
+    final row = index ~/ 8;
+    final column = index % 8;
+
     if ((row + column).isEven) {
       return null;
     }
@@ -123,6 +176,63 @@ class CheckersBoard extends StatelessWidget {
       return CheckersPieceColor.red;
     }
     return null;
+  }
+
+  Set<int> _legalMovesFrom(int? index) {
+    if (index == null) {
+      return const {};
+    }
+
+    final pieceColor = _squares[index];
+    if (pieceColor == null) {
+      return const {};
+    }
+
+    final row = index ~/ 8;
+    final column = index % 8;
+    final rowDirection = pieceColor == CheckersPieceColor.dark ? 1 : -1;
+    final destinationRow = row + rowDirection;
+    final legalMoves = <int>{};
+
+    if (destinationRow < 0 || destinationRow >= 8) {
+      return legalMoves;
+    }
+
+    for (final columnDirection in const [-1, 1]) {
+      final destinationColumn = column + columnDirection;
+      if (destinationColumn < 0 || destinationColumn >= 8) {
+        continue;
+      }
+
+      final destinationIndex = destinationRow * 8 + destinationColumn;
+      if (_squares[destinationIndex] == null) {
+        legalMoves.add(destinationIndex);
+      }
+    }
+
+    return legalMoves;
+  }
+
+  void _handleSquareTap(int index, Set<int> legalMoves) {
+    final pieceColor = _squares[index];
+
+    if (pieceColor == _currentPlayer) {
+      setState(() {
+        _selectedIndex = _selectedIndex == index ? null : index;
+      });
+      return;
+    }
+
+    if (_selectedIndex != null && legalMoves.contains(index)) {
+      setState(() {
+        _squares[index] = _squares[_selectedIndex!];
+        _squares[_selectedIndex!] = null;
+        _selectedIndex = null;
+        _currentPlayer = _currentPlayer == CheckersPieceColor.dark
+            ? CheckersPieceColor.red
+            : CheckersPieceColor.dark;
+      });
+    }
   }
 }
 
