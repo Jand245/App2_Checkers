@@ -11,5 +11,21 @@ void main() {
     for (var index = 0; index < 64; index++) {
       expect(find.byKey(Key('board-square-$index')), findsOneWidget);
     }
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is CheckersPiece &&
+            widget.color == CheckersPieceColor.dark,
+      ),
+      findsNWidgets(12),
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is CheckersPiece && widget.color == CheckersPieceColor.red,
+      ),
+      findsNWidgets(12),
+    );
   });
 }
