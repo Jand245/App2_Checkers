@@ -57,4 +57,33 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('move-target-33')), findsOneWidget);
   });
+
+  testWidgets('jumps over and removes an opposing piece', (tester) async {
+    await tester.pumpWidget(const CheckersApp());
+
+    await tester.tap(find.byKey(const Key('board-square-17')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('board-square-26')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('board-square-40')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('board-square-33')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('board-square-26')));
+    await tester.pump();
+    expect(find.byKey(const Key('move-target-40')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('board-square-40')));
+    await tester.pump();
+
+    expect(find.byKey(const Key('piece-26')), findsNothing);
+    expect(find.byKey(const Key('piece-33')), findsNothing);
+    expect(find.byKey(const Key('piece-40')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('board-square-42')));
+    await tester.pump();
+    expect(find.byKey(const Key('move-target-35')), findsOneWidget);
+  });
 }
