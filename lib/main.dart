@@ -91,9 +91,11 @@ class _CheckersBoardState extends State<CheckersBoard> {
   static const _darkSquareColor = Color(0xFF7B2D26);
 
   late final List<CheckersPieceColor?> _squares;
+  final Set<int> _kings = {};
   CheckersPieceColor _currentPlayer = CheckersPieceColor.dark;
   int? _selectedIndex;
   bool _mustContinueCapture = false;
+  CheckersPieceColor? _winner;
 
   @override
   void initState() {
@@ -104,6 +106,10 @@ class _CheckersBoardState extends State<CheckersBoard> {
   @override
   Widget build(BuildContext context) {
     final legalMoves = _legalMovesFrom(_selectedIndex);
+
+    if (_winner != null) {
+      return CheckersWinningScreen(winner: _winner!, onReplay: _replay);
+    }
 
     return GridView.builder(
       key: const Key('checkers-board'),
@@ -133,6 +139,14 @@ class _CheckersBoardState extends State<CheckersBoard> {
                     child: CheckersPiece(
                       key: Key('piece-$index'),
                       color: pieceColor,
+                    ),
+                  ),
+                if (pieceColor != null && _kings.contains(index))
+                  const Center(
+                    child: Icon(
+                      Icons.workspace_premium,
+                      key: Key('king-crown'),
+                      color: Color(0xFFFFD166),
                     ),
                   ),
                 if (legalMoves.contains(index))
@@ -196,6 +210,26 @@ class _CheckersBoardState extends State<CheckersBoard> {
 
     final row = index ~/ 8;
     final column = index % 8;
+    if (_kings.contains(index)) {
+      final kingMoves = <int>{};
+      for (final kingRowDirection in const [-1, 1]) {
+        final kingDestinationRow = row + kingRowDirection;
+        if (kingDestinationRow < 0 || kingDestinationRow >= 8) continue;
+
+        for (final columnDirection in const [-1, 1]) {
+          final destinationColumn = column + columnDirection;
+          if (destinationColumn < 0 || destinationColumn >= 8) continue;
+
+          final destinationIndex =
+              kingDestinationRow * 8 + destinationColumn;
+          if (_squares[destinationIndex] == null) {
+            kingMoves.add(destinationIndex);
+          }
+        }
+      }
+      return kingMoves;
+    }
+
     final rowDirection = pieceColor == CheckersPieceColor.dark ? 1 : -1;
     final destinationRow = row + rowDirection;
     final legalMoves = <int>{};
@@ -227,6 +261,30 @@ class _CheckersBoardState extends State<CheckersBoard> {
 
     final row = index ~/ 8;
     final column = index % 8;
+    if (_kings.contains(index)) {
+      final kingCaptureMoves = <int>{};
+      for (final kingRowDirection in const [-1, 1]) {
+        final kingLandingRow = row + kingRowDirection * 2;
+        if (kingLandingRow < 0 || kingLandingRow >= 8) continue;
+
+        for (final columnDirection in const [-1, 1]) {
+          final middleColumn = column + columnDirection;
+          final landingColumn = column + columnDirection * 2;
+          if (landingColumn < 0 || landingColumn >= 8) continue;
+
+          final middleIndex = (row + kingRowDirection) * 8 + middleColumn;
+          final landingIndex = kingLandingRow * 8 + landingColumn;
+          final jumpedPiece = _squares[middleIndex];
+          if (jumpedPiece != null &&
+              jumpedPiece != pieceColor &&
+              _squares[landingIndex] == null) {
+            kingCaptureMoves.add(landingIndex);
+          }
+        }
+      }
+      return kingCaptureMoves;
+    }
+
     final rowDirection = pieceColor == CheckersPieceColor.dark ? 1 : -1;
     final landingRow = row + rowDirection * 2;
     final captureMoves = <int>{};
@@ -273,14 +331,32 @@ class _CheckersBoardState extends State<CheckersBoard> {
         final sourceIndex = _selectedIndex!;
         final isCapture = (index ~/ 8 - sourceIndex ~/ 8).abs() == 2;
 
+        final movingPiece = _squares[sourceIndex]!;
+        final wasKing = _kings.remove(sourceIndex);
         _squares[index] = _squares[_selectedIndex!];
         _squares[_selectedIndex!] = null;
+
+        final destinationRow = index ~/ 8;
+        final wasPromoted = !wasKing &&
+            ((movingPiece == CheckersPieceColor.dark && destinationRow == 7) ||
+                (movingPiece == CheckersPieceColor.red && destinationRow == 0));
+        if (wasKing || wasPromoted) _kings.add(index);
 
         if (isCapture) {
           final jumpedIndex =
               ((sourceIndex ~/ 8 + index ~/ 8) ~/ 2) * 8 +
               ((sourceIndex % 8 + index % 8) ~/ 2);
           _squares[jumpedIndex] = null;
+          _kings.remove(jumpedIndex);
+          if (wasPromoted) {
+            _selectedIndex = null;
+            _mustContinueCapture = false;
+            _currentPlayer = _currentPlayer == CheckersPieceColor.dark
+                ? CheckersPieceColor.red
+                : CheckersPieceColor.dark;
+            _checkForWinner();
+            return;
+          }
           if (_captureMovesFrom(index).isNotEmpty) {
             _selectedIndex = index;
             _mustContinueCapture = true;
@@ -293,8 +369,37 @@ class _CheckersBoardState extends State<CheckersBoard> {
         _currentPlayer = _currentPlayer == CheckersPieceColor.dark
             ? CheckersPieceColor.red
             : CheckersPieceColor.dark;
+        _checkForWinner();
       });
     }
+  }
+
+  void _checkForWinner() {
+    final currentPlayerHasPieces = _squares.contains(_currentPlayer);
+    final currentPlayerCanMove = Iterable<int>.generate(64).any(
+      (index) =>
+          _squares[index] == _currentPlayer &&
+          _legalMovesFrom(index).isNotEmpty,
+    );
+
+    if (!currentPlayerHasPieces || !currentPlayerCanMove) {
+      _winner = _currentPlayer == CheckersPieceColor.dark
+          ? CheckersPieceColor.red
+          : CheckersPieceColor.dark;
+    }
+  }
+
+  void _replay() {
+    setState(() {
+      for (var index = 0; index < 64; index++) {
+        _squares[index] = _startingPieceAt(index);
+      }
+      _kings.clear();
+      _currentPlayer = CheckersPieceColor.dark;
+      _selectedIndex = null;
+      _mustContinueCapture = false;
+      _winner = null;
+    });
   }
 }
 
@@ -331,6 +436,58 @@ class CheckersPiece extends StatelessWidget {
               offset: Offset(0, 2),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class CheckersWinningScreen extends StatelessWidget {
+  const CheckersWinningScreen({
+    required this.winner,
+    required this.onReplay,
+    super.key,
+  });
+
+  final CheckersPieceColor winner;
+  final VoidCallback onReplay;
+
+  @override
+  Widget build(BuildContext context) {
+    final winnerName = winner == CheckersPieceColor.dark ? 'Dark' : 'Red';
+    final winnerColor = winner == CheckersPieceColor.dark
+        ? const Color(0xFF1F1C1B)
+        : const Color(0xFFB72F27);
+
+    return ColoredBox(
+      key: const Key('winning-screen'),
+      color: const Color(0xFFE8D7B7),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.emoji_events, size: 88, color: winnerColor),
+              const SizedBox(height: 16),
+              Text(
+                '$winnerName wins!',
+                key: const Key('winner-message'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: winnerColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                key: const Key('replay-button'),
+                onPressed: onReplay,
+                icon: const Icon(Icons.replay),
+                label: const Text('PLAY AGAIN'),
+              ),
+            ],
+          ),
         ),
       ),
     );
