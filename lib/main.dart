@@ -32,45 +32,131 @@ class CheckersApp extends StatelessWidget {
   }
 }
 
-class GameScreen extends StatelessWidget {
+class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
+
+  @override
+  State<GameScreen> createState() => _GameScreenState();
+}
+
+class _GameScreenState extends State<GameScreen> {
+  final _darkPlayerController = TextEditingController();
+  final _redPlayerController = TextEditingController();
+  bool _gameStarted = false;
+
+  @override
+  void dispose() {
+    _darkPlayerController.dispose();
+    _redPlayerController.dispose();
+    super.dispose();
+  }
+
+  void _startGame() {
+    FocusScope.of(context).unfocus();
+    setState(() => _gameStarted = true);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('CHECKERS'),
-      ),
+      appBar: AppBar(title: const Text('CHECKERS')),
       body: SafeArea(
         child: Center(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(_gameStarted ? 0 : 24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8D7B7),
-                    border: Border.all(
-                      color: const Color(0xFF4A2C23),
-                      width: 4,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x33000000),
-                        blurRadius: 12,
-                        offset: Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: const ClipRRect(
-                    borderRadius: BorderRadius.all(Radius.circular(8)),
-                    child: CheckersBoard(),
-                  ),
-                ),
+              constraints: BoxConstraints(
+                maxWidth: _gameStarted ? double.infinity : 520,
               ),
+              child: _gameStarted
+                  ? SizedBox.expand(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8D7B7),
+                          border: Border.all(
+                            color: const Color(0xFF4A2C23),
+                            width: 4,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x33000000),
+                              blurRadius: 12,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(8),
+                          ),
+                          child: CheckersBoard(
+                            darkPlayerName: _darkPlayerController.text.trim(),
+                            redPlayerName: _redPlayerController.text.trim(),
+                          ),
+                        ),
+                      ),
+                    )
+                  : Card(
+                      key: const Key('player-setup'),
+                      elevation: 10,
+                      color: const Color(0xFFE8D7B7),
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.sports_esports,
+                              size: 72,
+                              color: Color(0xFF7B2D26),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'READY TO PLAY?',
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 28),
+                            TextField(
+                              key: const Key('dark-player-name'),
+                              controller: _darkPlayerController,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Black player name',
+                                prefixIcon: Icon(Icons.person),
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              key: const Key('red-player-name'),
+                              controller: _redPlayerController,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _startGame(),
+                              decoration: const InputDecoration(
+                                labelText: 'Red player name',
+                                prefixIcon: Icon(Icons.person_outline),
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                key: const Key('start-game-button'),
+                                onPressed: _startGame,
+                                icon: const Icon(Icons.play_arrow),
+                                label: const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 14),
+                                  child: Text('START GAME'),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
             ),
           ),
         ),
@@ -80,7 +166,14 @@ class GameScreen extends StatelessWidget {
 }
 
 class CheckersBoard extends StatefulWidget {
-  const CheckersBoard({super.key});
+  const CheckersBoard({
+    this.darkPlayerName = 'Black',
+    this.redPlayerName = 'Red',
+    super.key,
+  });
+
+  final String darkPlayerName;
+  final String redPlayerName;
 
   @override
   State<CheckersBoard> createState() => _CheckersBoardState();
@@ -96,6 +189,8 @@ class _CheckersBoardState extends State<CheckersBoard> {
   int? _selectedIndex;
   bool _mustContinueCapture = false;
   CheckersPieceColor? _winner;
+  int _darkScore = 0;
+  int _redScore = 0;
 
   @override
   void initState() {
@@ -108,74 +203,106 @@ class _CheckersBoardState extends State<CheckersBoard> {
     final legalMoves = _legalMovesFrom(_selectedIndex);
 
     if (_winner != null) {
-      return CheckersWinningScreen(winner: _winner!, onReplay: _replay);
+      return CheckersWinningScreen(
+        winner: _winner!,
+        onReplay: _replay,
+        darkPlayerName: _darkPlayerName,
+        redPlayerName: _redPlayerName,
+        darkScore: _darkScore,
+        redScore: _redScore,
+      );
     }
 
-    return GridView.builder(
-      key: const Key('checkers-board'),
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 8,
-      ),
-      itemCount: 64,
-      itemBuilder: (context, index) {
-        final row = index ~/ 8;
-        final column = index % 8;
-        final isDarkSquare = (row + column).isOdd;
-        final pieceColor = _squares[index];
+    return Column(
+      children: [
+        _ScoreKeeper(
+          darkPlayerName: _darkPlayerName,
+          redPlayerName: _redPlayerName,
+          darkScore: _darkScore,
+          redScore: _redScore,
+        ),
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: GridView.builder(
+                key: const Key('checkers-board'),
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 8,
+                ),
+                itemCount: 64,
+                itemBuilder: (context, index) {
+                  final row = index ~/ 8;
+                  final column = index % 8;
+                  final isDarkSquare = (row + column).isOdd;
+                  final pieceColor = _squares[index];
 
-        return GestureDetector(
-          key: Key('board-square-$index'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _handleSquareTap(index, legalMoves),
-          child: ColoredBox(
-            color: isDarkSquare ? _darkSquareColor : _lightSquareColor,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (pieceColor != null)
-                  Center(
-                    child: CheckersPiece(
-                      key: Key('piece-$index'),
-                      color: pieceColor,
-                    ),
-                  ),
-                if (pieceColor != null && _kings.contains(index))
-                  const Center(
-                    child: Icon(
-                      Icons.workspace_premium,
-                      key: Key('king-crown'),
-                      color: Color(0xFFFFD166),
-                    ),
-                  ),
-                if (legalMoves.contains(index))
-                  Center(
-                    child: FractionallySizedBox(
-                      widthFactor: 0.28,
-                      heightFactor: 0.28,
-                      child: DecoratedBox(
-                        key: Key('move-target-$index'),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFFD166),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x66000000),
-                              blurRadius: 3,
+                  return GestureDetector(
+                    key: Key('board-square-$index'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _handleSquareTap(index, legalMoves),
+                    child: ColoredBox(
+                      color: isDarkSquare
+                          ? _darkSquareColor
+                          : _lightSquareColor,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (pieceColor != null)
+                            Center(
+                              child: CheckersPiece(
+                                key: Key('piece-$index'),
+                                color: pieceColor,
+                              ),
                             ),
-                          ],
-                        ),
+                          if (pieceColor != null && _kings.contains(index))
+                            const Center(
+                              child: Icon(
+                                Icons.workspace_premium,
+                                key: Key('king-crown'),
+                                color: Color(0xFFFFD166),
+                              ),
+                            ),
+                          if (legalMoves.contains(index))
+                            Center(
+                              child: FractionallySizedBox(
+                                widthFactor: 0.28,
+                                heightFactor: 0.28,
+                                child: DecoratedBox(
+                                  key: Key('move-target-$index'),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFFD166),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Color(0x66000000),
+                                        blurRadius: 3,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-              ],
+                  );
+                },
+              ),
             ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
+
+  String get _darkPlayerName =>
+      widget.darkPlayerName.isEmpty ? 'Black' : widget.darkPlayerName;
+
+  String get _redPlayerName =>
+      widget.redPlayerName.isEmpty ? 'Red' : widget.redPlayerName;
 
   CheckersPieceColor? _startingPieceAt(int index) {
     final row = index ~/ 8;
@@ -220,8 +347,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
           final destinationColumn = column + columnDirection;
           if (destinationColumn < 0 || destinationColumn >= 8) continue;
 
-          final destinationIndex =
-              kingDestinationRow * 8 + destinationColumn;
+          final destinationIndex = kingDestinationRow * 8 + destinationColumn;
           if (_squares[destinationIndex] == null) {
             kingMoves.add(destinationIndex);
           }
@@ -337,7 +463,8 @@ class _CheckersBoardState extends State<CheckersBoard> {
         _squares[_selectedIndex!] = null;
 
         final destinationRow = index ~/ 8;
-        final wasPromoted = !wasKing &&
+        final wasPromoted =
+            !wasKing &&
             ((movingPiece == CheckersPieceColor.dark && destinationRow == 7) ||
                 (movingPiece == CheckersPieceColor.red && destinationRow == 0));
         if (wasKing || wasPromoted) _kings.add(index);
@@ -386,6 +513,11 @@ class _CheckersBoardState extends State<CheckersBoard> {
       _winner = _currentPlayer == CheckersPieceColor.dark
           ? CheckersPieceColor.red
           : CheckersPieceColor.dark;
+      if (_winner == CheckersPieceColor.dark) {
+        _darkScore++;
+      } else {
+        _redScore++;
+      }
     }
   }
 
@@ -446,15 +578,25 @@ class CheckersWinningScreen extends StatelessWidget {
   const CheckersWinningScreen({
     required this.winner,
     required this.onReplay,
+    this.darkPlayerName = 'Black',
+    this.redPlayerName = 'Red',
+    this.darkScore = 0,
+    this.redScore = 0,
     super.key,
   });
 
   final CheckersPieceColor winner;
   final VoidCallback onReplay;
+  final String darkPlayerName;
+  final String redPlayerName;
+  final int darkScore;
+  final int redScore;
 
   @override
   Widget build(BuildContext context) {
-    final winnerName = winner == CheckersPieceColor.dark ? 'Dark' : 'Red';
+    final winnerName = winner == CheckersPieceColor.dark
+        ? darkPlayerName
+        : redPlayerName;
     final winnerColor = winner == CheckersPieceColor.dark
         ? const Color(0xFF1F1C1B)
         : const Color(0xFFB72F27);
@@ -479,6 +621,13 @@ class CheckersWinningScreen extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+              const SizedBox(height: 20),
+              _ScoreKeeper(
+                darkPlayerName: darkPlayerName,
+                redPlayerName: redPlayerName,
+                darkScore: darkScore,
+                redScore: redScore,
+              ),
               const SizedBox(height: 24),
               FilledButton.icon(
                 key: const Key('replay-button'),
@@ -489,6 +638,55 @@ class CheckersWinningScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ScoreKeeper extends StatelessWidget {
+  const _ScoreKeeper({
+    required this.darkPlayerName,
+    required this.redPlayerName,
+    required this.darkScore,
+    required this.redScore,
+  });
+
+  final String darkPlayerName;
+  final String redPlayerName;
+  final int darkScore;
+  final int redScore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('score-keeper'),
+      color: const Color(0xFFF7F1E5),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$darkPlayerName: $darkScore',
+              key: const Key('dark-score'),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const Text('  —  '),
+          Expanded(
+            child: Text(
+              '$redPlayerName: $redScore',
+              key: const Key('red-score'),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFFB72F27),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

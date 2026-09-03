@@ -3,8 +3,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  Future<void> startGame(WidgetTester tester) async {
+    await tester.enterText(find.byKey(const Key('dark-player-name')), 'Alex');
+    await tester.enterText(find.byKey(const Key('red-player-name')), 'Jordan');
+    await tester.tap(find.byKey(const Key('start-game-button')));
+    await tester.pump();
+  }
+
+  testWidgets('collects player names before starting the game', (tester) async {
+    await tester.pumpWidget(const CheckersApp());
+
+    expect(find.byKey(const Key('player-setup')), findsOneWidget);
+    expect(find.byKey(const Key('checkers-board')), findsNothing);
+
+    await startGame(tester);
+
+    expect(find.byKey(const Key('player-setup')), findsNothing);
+    expect(find.byKey(const Key('checkers-board')), findsOneWidget);
+    expect(find.text('Alex: 0'), findsOneWidget);
+    expect(find.text('Jordan: 0'), findsOneWidget);
+  });
+
   testWidgets('shows an 8 by 8 checkers board', (tester) async {
     await tester.pumpWidget(const CheckersApp());
+    await startGame(tester);
 
     expect(find.text('CHECKERS'), findsOneWidget);
     expect(find.byKey(const Key('checkers-board')), findsOneWidget);
@@ -16,8 +38,7 @@ void main() {
     expect(
       find.byWidgetPredicate(
         (widget) =>
-            widget is CheckersPiece &&
-            widget.color == CheckersPieceColor.dark,
+            widget is CheckersPiece && widget.color == CheckersPieceColor.dark,
       ),
       findsNWidgets(12),
     );
@@ -32,6 +53,7 @@ void main() {
 
   testWidgets('moves pieces diagonally and alternates turns', (tester) async {
     await tester.pumpWidget(const CheckersApp());
+    await startGame(tester);
 
     await tester.tap(find.byKey(const Key('board-square-40')));
     await tester.pump();
@@ -60,6 +82,7 @@ void main() {
 
   testWidgets('jumps over and removes an opposing piece', (tester) async {
     await tester.pumpWidget(const CheckersApp());
+    await startGame(tester);
 
     await tester.tap(find.byKey(const Key('board-square-17')));
     await tester.pump();
@@ -95,12 +118,18 @@ void main() {
         home: CheckersWinningScreen(
           winner: CheckersPieceColor.red,
           onReplay: () => replayPressed = true,
+          darkPlayerName: 'Alex',
+          redPlayerName: 'Jordan',
+          darkScore: 1,
+          redScore: 2,
         ),
       ),
     );
 
     expect(find.byKey(const Key('winning-screen')), findsOneWidget);
-    expect(find.text('Red wins!'), findsOneWidget);
+    expect(find.text('Jordan wins!'), findsOneWidget);
+    expect(find.text('Alex: 1'), findsOneWidget);
+    expect(find.text('Jordan: 2'), findsOneWidget);
     expect(find.text('PLAY AGAIN'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('replay-button')));
