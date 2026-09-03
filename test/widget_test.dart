@@ -86,4 +86,24 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('move-target-35')), findsOneWidget);
   });
+
+  testWidgets('winning screen shows the winner and replays', (tester) async {
+    var replayPressed = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CheckersWinningScreen(
+          winner: CheckersPieceColor.red,
+          onReplay: () => replayPressed = true,
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('winning-screen')), findsOneWidget);
+    expect(find.text('Red wins!'), findsOneWidget);
+    expect(find.text('PLAY AGAIN'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('replay-button')));
+    expect(replayPressed, isTrue);
+  });
 }
