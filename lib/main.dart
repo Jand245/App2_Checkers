@@ -93,6 +93,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
   late final List<CheckersPieceColor?> _squares;
   CheckersPieceColor _currentPlayer = CheckersPieceColor.dark;
   int? _selectedIndex;
+  bool _mustContinueCapture = false;
 
   @override
   void initState() {
@@ -188,6 +189,11 @@ class _CheckersBoardState extends State<CheckersBoard> {
       return const {};
     }
 
+    final captureMoves = _captureMovesFrom(index);
+    if (captureMoves.isNotEmpty || _mustContinueCapture) {
+      return captureMoves;
+    }
+
     final row = index ~/ 8;
     final column = index % 8;
     final rowDirection = pieceColor == CheckersPieceColor.dark ? 1 : -1;
@@ -213,10 +219,49 @@ class _CheckersBoardState extends State<CheckersBoard> {
     return legalMoves;
   }
 
+  Set<int> _captureMovesFrom(int index) {
+    final pieceColor = _squares[index];
+    if (pieceColor == null) {
+      return const {};
+    }
+
+    final row = index ~/ 8;
+    final column = index % 8;
+    final rowDirection = pieceColor == CheckersPieceColor.dark ? 1 : -1;
+    final landingRow = row + rowDirection * 2;
+    final captureMoves = <int>{};
+
+    if (landingRow < 0 || landingRow >= 8) {
+      return captureMoves;
+    }
+
+    for (final columnDirection in const [-1, 1]) {
+      final middleColumn = column + columnDirection;
+      final landingColumn = column + columnDirection * 2;
+      if (landingColumn < 0 || landingColumn >= 8) {
+        continue;
+      }
+
+      final middleIndex = (row + rowDirection) * 8 + middleColumn;
+      final landingIndex = landingRow * 8 + landingColumn;
+      final jumpedPiece = _squares[middleIndex];
+      if (jumpedPiece != null &&
+          jumpedPiece != pieceColor &&
+          _squares[landingIndex] == null) {
+        captureMoves.add(landingIndex);
+      }
+    }
+
+    return captureMoves;
+  }
+
   void _handleSquareTap(int index, Set<int> legalMoves) {
     final pieceColor = _squares[index];
 
     if (pieceColor == _currentPlayer) {
+      if (_mustContinueCapture) {
+        return;
+      }
       setState(() {
         _selectedIndex = _selectedIndex == index ? null : index;
       });
@@ -225,9 +270,26 @@ class _CheckersBoardState extends State<CheckersBoard> {
 
     if (_selectedIndex != null && legalMoves.contains(index)) {
       setState(() {
+        final sourceIndex = _selectedIndex!;
+        final isCapture = (index ~/ 8 - sourceIndex ~/ 8).abs() == 2;
+
         _squares[index] = _squares[_selectedIndex!];
         _squares[_selectedIndex!] = null;
+
+        if (isCapture) {
+          final jumpedIndex =
+              ((sourceIndex ~/ 8 + index ~/ 8) ~/ 2) * 8 +
+              ((sourceIndex % 8 + index % 8) ~/ 2);
+          _squares[jumpedIndex] = null;
+          if (_captureMovesFrom(index).isNotEmpty) {
+            _selectedIndex = index;
+            _mustContinueCapture = true;
+            return;
+          }
+        }
+
         _selectedIndex = null;
+        _mustContinueCapture = false;
         _currentPlayer = _currentPlayer == CheckersPieceColor.dark
             ? CheckersPieceColor.red
             : CheckersPieceColor.dark;
