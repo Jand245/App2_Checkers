@@ -32,6 +32,8 @@ class CheckersApp extends StatelessWidget {
   }
 }
 
+enum GameMode { twoPlayers, vsCpu }
+
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
 
@@ -42,6 +44,7 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   final _darkPlayerController = TextEditingController();
   final _redPlayerController = TextEditingController();
+  GameMode _gameMode = GameMode.twoPlayers;
   bool _gameStarted = false;
 
   @override
@@ -92,7 +95,10 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           child: CheckersBoard(
                             darkPlayerName: _darkPlayerController.text.trim(),
-                            redPlayerName: _redPlayerController.text.trim(),
+                            redPlayerName: _gameMode == GameMode.vsCpu
+                                ? 'CPU'
+                                : _redPlayerController.text.trim(),
+                            gameMode: _gameMode,
                           ),
                         ),
                       ),
@@ -117,11 +123,38 @@ class _GameScreenState extends State<GameScreen> {
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
-                            const SizedBox(height: 28),
+                            const SizedBox(height: 20),
+                            SegmentedButton<GameMode>(
+                              key: const Key('game-mode-selector'),
+                              showSelectedIcon: false,
+                              segments: const [
+                                ButtonSegment(
+                                  value: GameMode.twoPlayers,
+                                  icon: Icon(Icons.people),
+                                  label: Text('2 PLAYERS'),
+                                ),
+                                ButtonSegment(
+                                  value: GameMode.vsCpu,
+                                  icon: Icon(Icons.computer),
+                                  label: Text('VS CPU'),
+                                ),
+                              ],
+                              selected: {_gameMode},
+                              onSelectionChanged: (selection) {
+                                FocusScope.of(context).unfocus();
+                                setState(() => _gameMode = selection.first);
+                              },
+                            ),
+                            const SizedBox(height: 24),
                             TextField(
                               key: const Key('dark-player-name'),
                               controller: _darkPlayerController,
-                              textInputAction: TextInputAction.next,
+                              textInputAction: _gameMode == GameMode.twoPlayers
+                                  ? TextInputAction.next
+                                  : TextInputAction.done,
+                              onSubmitted: _gameMode == GameMode.vsCpu
+                                  ? (_) => _startGame()
+                                  : null,
                               decoration: const InputDecoration(
                                 labelText: 'Black player name',
                                 prefixIcon: Icon(Icons.person),
@@ -129,17 +162,42 @@ class _GameScreenState extends State<GameScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            TextField(
-                              key: const Key('red-player-name'),
-                              controller: _redPlayerController,
-                              textInputAction: TextInputAction.done,
-                              onSubmitted: (_) => _startGame(),
-                              decoration: const InputDecoration(
-                                labelText: 'Red player name',
-                                prefixIcon: Icon(Icons.person_outline),
-                                border: OutlineInputBorder(),
+                            if (_gameMode == GameMode.twoPlayers)
+                              TextField(
+                                key: const Key('red-player-name'),
+                                controller: _redPlayerController,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _startGame(),
+                                decoration: const InputDecoration(
+                                  labelText: 'Red player name',
+                                  prefixIcon: Icon(Icons.person_outline),
+                                  border: OutlineInputBorder(),
+                                ),
+                              )
+                            else
+                              Container(
+                                key: const Key('cpu-opponent-label'),
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 18,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outline,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.computer),
+                                    SizedBox(width: 12),
+                                    Text('Red player: CPU'),
+                                  ],
+                                ),
                               ),
-                            ),
                             const SizedBox(height: 28),
                             SizedBox(
                               width: double.infinity,
@@ -169,11 +227,13 @@ class CheckersBoard extends StatefulWidget {
   const CheckersBoard({
     this.darkPlayerName = 'Black',
     this.redPlayerName = 'Red',
+    this.gameMode = GameMode.twoPlayers,
     super.key,
   });
 
   final String darkPlayerName;
   final String redPlayerName;
+  final GameMode gameMode;
 
   @override
   State<CheckersBoard> createState() => _CheckersBoardState();
@@ -188,6 +248,8 @@ class _CheckersBoardState extends State<CheckersBoard> {
   CheckersPieceColor _currentPlayer = CheckersPieceColor.dark;
   int? _selectedIndex;
   bool _mustContinueCapture = false;
+  bool _isCpuThinking = false;
+  bool _cpuMoveScheduled = false;
   CheckersPieceColor? _winner;
   int _darkScore = 0;
   int _redScore = 0;
@@ -220,6 +282,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
           redPlayerName: _redPlayerName,
           darkScore: _darkScore,
           redScore: _redScore,
+          statusMessage: _isCpuThinking ? 'CPU thinking…' : null,
         ),
         Expanded(
           child: Center(
@@ -304,6 +367,8 @@ class _CheckersBoardState extends State<CheckersBoard> {
   String get _redPlayerName =>
       widget.redPlayerName.isEmpty ? 'Red' : widget.redPlayerName;
 
+  bool get _isCpuGame => widget.gameMode == GameMode.vsCpu;
+
   CheckersPieceColor? _startingPieceAt(int index) {
     final row = index ~/ 8;
     final column = index % 8;
@@ -330,14 +395,61 @@ class _CheckersBoardState extends State<CheckersBoard> {
       return const {};
     }
 
-    final captureMoves = _captureMovesFrom(index);
-    if (captureMoves.isNotEmpty || _mustContinueCapture) {
+    if (_mustContinueCapture) {
+      return index == _selectedIndex ? _captureMovesFrom(index) : const {};
+    }
+
+    return _legalMovesFor(pieceColor)
+        .where((move) => move.source == index)
+        .map((move) => move.destination)
+        .toSet();
+  }
+
+  List<_CheckersMove> _legalMovesFor(
+    CheckersPieceColor player, {
+    int? onlySource,
+  }) {
+    final sourceIndices = Iterable<int>.generate(64).where(
+      (index) =>
+          _squares[index] == player &&
+          (onlySource == null || index == onlySource),
+    );
+    final captureMoves = <_CheckersMove>[];
+
+    for (final source in sourceIndices) {
+      for (final destination in _captureMovesFrom(source)) {
+        captureMoves.add(_CheckersMove(source, destination));
+      }
+    }
+
+    if (captureMoves.isNotEmpty || onlySource != null) {
       return captureMoves;
+    }
+
+    final regularMoves = <_CheckersMove>[];
+    for (final source in sourceIndices) {
+      for (final destination in _regularMovesFrom(source)) {
+        regularMoves.add(_CheckersMove(source, destination));
+      }
+    }
+    return regularMoves;
+  }
+
+  Set<int> _regularMovesFrom(
+    int index, {
+    List<CheckersPieceColor?>? squares,
+    Set<int>? kings,
+  }) {
+    final board = squares ?? _squares;
+    final crownedPieces = kings ?? _kings;
+    final pieceColor = board[index];
+    if (pieceColor == null) {
+      return const {};
     }
 
     final row = index ~/ 8;
     final column = index % 8;
-    if (_kings.contains(index)) {
+    if (crownedPieces.contains(index)) {
       final kingMoves = <int>{};
       for (final kingRowDirection in const [-1, 1]) {
         final kingDestinationRow = row + kingRowDirection;
@@ -348,7 +460,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
           if (destinationColumn < 0 || destinationColumn >= 8) continue;
 
           final destinationIndex = kingDestinationRow * 8 + destinationColumn;
-          if (_squares[destinationIndex] == null) {
+          if (board[destinationIndex] == null) {
             kingMoves.add(destinationIndex);
           }
         }
@@ -371,7 +483,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
       }
 
       final destinationIndex = destinationRow * 8 + destinationColumn;
-      if (_squares[destinationIndex] == null) {
+      if (board[destinationIndex] == null) {
         legalMoves.add(destinationIndex);
       }
     }
@@ -379,15 +491,21 @@ class _CheckersBoardState extends State<CheckersBoard> {
     return legalMoves;
   }
 
-  Set<int> _captureMovesFrom(int index) {
-    final pieceColor = _squares[index];
+  Set<int> _captureMovesFrom(
+    int index, {
+    List<CheckersPieceColor?>? squares,
+    Set<int>? kings,
+  }) {
+    final board = squares ?? _squares;
+    final crownedPieces = kings ?? _kings;
+    final pieceColor = board[index];
     if (pieceColor == null) {
       return const {};
     }
 
     final row = index ~/ 8;
     final column = index % 8;
-    if (_kings.contains(index)) {
+    if (crownedPieces.contains(index)) {
       final kingCaptureMoves = <int>{};
       for (final kingRowDirection in const [-1, 1]) {
         final kingLandingRow = row + kingRowDirection * 2;
@@ -400,10 +518,10 @@ class _CheckersBoardState extends State<CheckersBoard> {
 
           final middleIndex = (row + kingRowDirection) * 8 + middleColumn;
           final landingIndex = kingLandingRow * 8 + landingColumn;
-          final jumpedPiece = _squares[middleIndex];
+          final jumpedPiece = board[middleIndex];
           if (jumpedPiece != null &&
               jumpedPiece != pieceColor &&
-              _squares[landingIndex] == null) {
+              board[landingIndex] == null) {
             kingCaptureMoves.add(landingIndex);
           }
         }
@@ -428,10 +546,10 @@ class _CheckersBoardState extends State<CheckersBoard> {
 
       final middleIndex = (row + rowDirection) * 8 + middleColumn;
       final landingIndex = landingRow * 8 + landingColumn;
-      final jumpedPiece = _squares[middleIndex];
+      final jumpedPiece = board[middleIndex];
       if (jumpedPiece != null &&
           jumpedPiece != pieceColor &&
-          _squares[landingIndex] == null) {
+          board[landingIndex] == null) {
         captureMoves.add(landingIndex);
       }
     }
@@ -440,10 +558,21 @@ class _CheckersBoardState extends State<CheckersBoard> {
   }
 
   void _handleSquareTap(int index, Set<int> legalMoves) {
+    if (_isCpuGame &&
+        (_currentPlayer == CheckersPieceColor.red || _isCpuThinking)) {
+      return;
+    }
+
     final pieceColor = _squares[index];
 
     if (pieceColor == _currentPlayer) {
       if (_mustContinueCapture) {
+        return;
+      }
+      final playerMustCapture = _legalMovesFor(
+        _currentPlayer,
+      ).any((move) => move.isCapture);
+      if (playerMustCapture && _captureMovesFrom(index).isEmpty) {
         return;
       }
       setState(() {
@@ -453,61 +582,218 @@ class _CheckersBoardState extends State<CheckersBoard> {
     }
 
     if (_selectedIndex != null && legalMoves.contains(index)) {
+      var shouldStartCpuTurn = false;
       setState(() {
         final sourceIndex = _selectedIndex!;
-        final isCapture = (index ~/ 8 - sourceIndex ~/ 8).abs() == 2;
-
-        final movingPiece = _squares[sourceIndex]!;
-        final wasKing = _kings.remove(sourceIndex);
-        _squares[index] = _squares[_selectedIndex!];
-        _squares[_selectedIndex!] = null;
-
-        final destinationRow = index ~/ 8;
-        final wasPromoted =
-            !wasKing &&
-            ((movingPiece == CheckersPieceColor.dark && destinationRow == 7) ||
-                (movingPiece == CheckersPieceColor.red && destinationRow == 0));
-        if (wasKing || wasPromoted) _kings.add(index);
-
-        if (isCapture) {
-          final jumpedIndex =
-              ((sourceIndex ~/ 8 + index ~/ 8) ~/ 2) * 8 +
-              ((sourceIndex % 8 + index % 8) ~/ 2);
-          _squares[jumpedIndex] = null;
-          _kings.remove(jumpedIndex);
-          if (wasPromoted) {
-            _selectedIndex = null;
-            _mustContinueCapture = false;
-            _currentPlayer = _currentPlayer == CheckersPieceColor.dark
-                ? CheckersPieceColor.red
-                : CheckersPieceColor.dark;
-            _checkForWinner();
-            return;
-          }
-          if (_captureMovesFrom(index).isNotEmpty) {
-            _selectedIndex = index;
-            _mustContinueCapture = true;
-            return;
-          }
+        if (_applyMove(sourceIndex, index)) {
+          _finishTurn();
+          shouldStartCpuTurn =
+              _isCpuGame &&
+              _winner == null &&
+              _currentPlayer == CheckersPieceColor.red;
         }
+      });
+      if (shouldStartCpuTurn) {
+        _scheduleCpuTurn();
+      }
+    }
+  }
 
-        _selectedIndex = null;
-        _mustContinueCapture = false;
-        _currentPlayer = _currentPlayer == CheckersPieceColor.dark
-            ? CheckersPieceColor.red
-            : CheckersPieceColor.dark;
+  bool _applyMove(int sourceIndex, int destinationIndex) {
+    final move = _CheckersMove(sourceIndex, destinationIndex);
+    final movingPiece = _squares[sourceIndex]!;
+    final wasKing = _kings.remove(sourceIndex);
+
+    _squares[destinationIndex] = movingPiece;
+    _squares[sourceIndex] = null;
+
+    final destinationRow = destinationIndex ~/ 8;
+    final wasPromoted =
+        !wasKing &&
+        ((movingPiece == CheckersPieceColor.dark && destinationRow == 7) ||
+            (movingPiece == CheckersPieceColor.red && destinationRow == 0));
+    if (wasKing || wasPromoted) {
+      _kings.add(destinationIndex);
+    }
+
+    if (move.isCapture) {
+      final jumpedIndex = move.jumpedIndex;
+      _squares[jumpedIndex] = null;
+      _kings.remove(jumpedIndex);
+
+      if (!wasPromoted && _captureMovesFrom(destinationIndex).isNotEmpty) {
+        _selectedIndex = destinationIndex;
+        _mustContinueCapture = true;
+        return false;
+      }
+    }
+
+    _selectedIndex = null;
+    _mustContinueCapture = false;
+    return true;
+  }
+
+  void _finishTurn() {
+    _selectedIndex = null;
+    _mustContinueCapture = false;
+    _currentPlayer = _currentPlayer == CheckersPieceColor.dark
+        ? CheckersPieceColor.red
+        : CheckersPieceColor.dark;
+    _checkForWinner();
+  }
+
+  void _scheduleCpuTurn() {
+    if (!_isCpuGame ||
+        _winner != null ||
+        _currentPlayer != CheckersPieceColor.red ||
+        _cpuMoveScheduled) {
+      return;
+    }
+
+    _cpuMoveScheduled = true;
+    if (!_isCpuThinking) {
+      setState(() => _isCpuThinking = true);
+    }
+
+    Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      _cpuMoveScheduled = false;
+      if (!_isCpuGame ||
+          _winner != null ||
+          _currentPlayer != CheckersPieceColor.red ||
+          !_isCpuThinking) {
+        return;
+      }
+      _makeCpuMove();
+    });
+  }
+
+  void _makeCpuMove() {
+    final moves = _legalMovesFor(
+      CheckersPieceColor.red,
+      onlySource: _mustContinueCapture ? _selectedIndex : null,
+    );
+
+    if (moves.isEmpty) {
+      setState(() {
+        _isCpuThinking = false;
         _checkForWinner();
       });
+      return;
     }
+
+    final move = _chooseCpuMove(moves);
+    var mustContinue = false;
+    setState(() {
+      _selectedIndex = move.source;
+      if (_applyMove(move.source, move.destination)) {
+        _finishTurn();
+        _isCpuThinking = false;
+      } else {
+        mustContinue = true;
+      }
+    });
+
+    if (mustContinue) {
+      _scheduleCpuTurn();
+    }
+  }
+
+  _CheckersMove _chooseCpuMove(List<_CheckersMove> moves) {
+    var bestMove = moves.first;
+    var bestScore = _scoreCpuMove(bestMove);
+
+    for (final move in moves.skip(1)) {
+      final score = _scoreCpuMove(move);
+      final winsTie =
+          score == bestScore &&
+          (move.source < bestMove.source ||
+              (move.source == bestMove.source &&
+                  move.destination < bestMove.destination));
+      if (score > bestScore || winsTie) {
+        bestMove = move;
+        bestScore = score;
+      }
+    }
+    return bestMove;
+  }
+
+  int _scoreCpuMove(_CheckersMove move) {
+    final board = List<CheckersPieceColor?>.of(_squares);
+    final crownedPieces = Set<int>.of(_kings);
+    final movingPiece = board[move.source]!;
+    final wasKing = crownedPieces.remove(move.source);
+
+    board[move.destination] = movingPiece;
+    board[move.source] = null;
+    if (move.isCapture) {
+      board[move.jumpedIndex] = null;
+      crownedPieces.remove(move.jumpedIndex);
+    }
+
+    final destinationRow = move.destination ~/ 8;
+    final destinationColumn = move.destination % 8;
+    final wasPromoted =
+        !wasKing &&
+        movingPiece == CheckersPieceColor.red &&
+        destinationRow == 0;
+    if (wasKing || wasPromoted) {
+      crownedPieces.add(move.destination);
+    }
+
+    var score = 0;
+    if (move.isCapture) score += 100;
+    if (wasPromoted) score += 75;
+    if (move.isCapture && !wasPromoted) {
+      score +=
+          _captureMovesFrom(
+            move.destination,
+            squares: board,
+            kings: crownedPieces,
+          ).length *
+          35;
+    }
+
+    if (_isImmediatelyCapturable(move.destination, board, crownedPieces)) {
+      score -= 60;
+    }
+
+    score += 7 - (destinationColumn * 2 - 7).abs();
+    score += 7 - destinationRow;
+    if (destinationColumn == 0 || destinationColumn == 7) score += 4;
+    score += _regularMovesFrom(
+      move.destination,
+      squares: board,
+      kings: crownedPieces,
+    ).length;
+
+    return score;
+  }
+
+  bool _isImmediatelyCapturable(
+    int targetIndex,
+    List<CheckersPieceColor?> board,
+    Set<int> crownedPieces,
+  ) {
+    for (var source = 0; source < 64; source++) {
+      if (board[source] != CheckersPieceColor.dark) continue;
+      for (final destination in _captureMovesFrom(
+        source,
+        squares: board,
+        kings: crownedPieces,
+      )) {
+        final response = _CheckersMove(source, destination);
+        if (response.jumpedIndex == targetIndex) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   void _checkForWinner() {
     final currentPlayerHasPieces = _squares.contains(_currentPlayer);
-    final currentPlayerCanMove = Iterable<int>.generate(64).any(
-      (index) =>
-          _squares[index] == _currentPlayer &&
-          _legalMovesFrom(index).isNotEmpty,
-    );
+    final currentPlayerCanMove = _legalMovesFor(_currentPlayer).isNotEmpty;
 
     if (!currentPlayerHasPieces || !currentPlayerCanMove) {
       _winner = _currentPlayer == CheckersPieceColor.dark
@@ -530,9 +816,24 @@ class _CheckersBoardState extends State<CheckersBoard> {
       _currentPlayer = CheckersPieceColor.dark;
       _selectedIndex = null;
       _mustContinueCapture = false;
+      _isCpuThinking = false;
+      _cpuMoveScheduled = false;
       _winner = null;
     });
   }
+}
+
+class _CheckersMove {
+  const _CheckersMove(this.source, this.destination);
+
+  final int source;
+  final int destination;
+
+  bool get isCapture => (destination ~/ 8 - source ~/ 8).abs() == 2;
+
+  int get jumpedIndex =>
+      ((source ~/ 8 + destination ~/ 8) ~/ 2) * 8 +
+      ((source % 8 + destination % 8) ~/ 2);
 }
 
 enum CheckersPieceColor { dark, red }
@@ -649,12 +950,14 @@ class _ScoreKeeper extends StatelessWidget {
     required this.redPlayerName,
     required this.darkScore,
     required this.redScore,
+    this.statusMessage,
   });
 
   final String darkPlayerName;
   final String redPlayerName;
   final int darkScore;
   final int redScore;
+  final String? statusMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -662,30 +965,63 @@ class _ScoreKeeper extends StatelessWidget {
       key: const Key('score-keeper'),
       color: const Color(0xFFF7F1E5),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Text(
-              '$darkPlayerName: $darkScore',
-              key: const Key('dark-score'),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$darkPlayerName: $darkScore',
+                  key: const Key('dark-score'),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Text('  —  '),
+              Expanded(
+                child: Text(
+                  '$redPlayerName: $redScore',
+                  key: const Key('red-score'),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFB72F27),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const Text('  —  '),
-          Expanded(
-            child: Text(
-              '$redPlayerName: $redScore',
-              key: const Key('red-score'),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFFB72F27),
-                fontWeight: FontWeight.bold,
+          if (statusMessage != null)
+            Container(
+              key: const Key('cpu-thinking-indicator'),
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0x33FFD166),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.computer,
+                    size: 18,
+                    color: Color(0xFF7B2D26),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    statusMessage!,
+                    style: const TextStyle(
+                      color: Color(0xFF4A2C23),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
         ],
       ),
     );
