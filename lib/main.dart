@@ -284,6 +284,7 @@ class _CheckersBoardState extends State<CheckersBoard> {
           redScore: _redScore,
           statusMessage: _isCpuThinking ? 'CPU thinking…' : null,
         ),
+        _TurnIndicator(currentPlayer: _currentPlayer),
         Expanded(
           child: Center(
             child: AspectRatio(
@@ -937,6 +938,42 @@ class CheckersWinningScreen extends StatelessWidget {
                 label: const Text('PLAY AGAIN'),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TurnIndicator extends StatelessWidget {
+  const _TurnIndicator({required this.currentPlayer});
+
+  final CheckersPieceColor currentPlayer;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBlackTurn = currentPlayer == CheckersPieceColor.dark;
+    final indicatorColor = isBlackTurn
+        ? const Color(0xFF1F1C1B)
+        : const Color(0xFFB72F27);
+
+    return AnimatedContainer(
+      key: const Key('turn-indicator'),
+      duration: const Duration(milliseconds: 250),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: indicatorColor,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: Text(
+          isBlackTurn ? 'BLACK TURN' : 'RED TURN',
+          key: Key(isBlackTurn ? 'black-turn' : 'red-turn'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.5,
           ),
         ),
       ),

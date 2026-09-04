@@ -93,6 +93,10 @@ void main() {
     await tester.pumpWidget(const CheckersApp());
     await startGame(tester);
 
+    expect(find.byKey(const Key('black-turn')), findsOneWidget);
+    expect(find.text('BLACK TURN'), findsOneWidget);
+    expect(find.byKey(const Key('red-turn')), findsNothing);
+
     await tester.tap(find.byKey(const Key('board-square-40')));
     await tester.pump();
     expect(find.byKey(const Key('move-target-33')), findsNothing);
@@ -104,10 +108,14 @@ void main() {
 
     await tester.tap(find.byKey(const Key('board-square-24')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
     expect(find.byKey(const Key('piece-17')), findsNothing);
     expect(find.byKey(const Key('piece-24')), findsOneWidget);
     expect(find.byKey(const Key('move-target-24')), findsNothing);
     expect(find.byKey(const Key('move-target-26')), findsNothing);
+    expect(find.byKey(const Key('red-turn')), findsOneWidget);
+    expect(find.text('RED TURN'), findsOneWidget);
+    expect(find.byKey(const Key('black-turn')), findsNothing);
 
     await tester.tap(find.byKey(const Key('board-square-24')));
     await tester.pump();
